@@ -11,4 +11,4 @@ class MyClient(discord.Client):
 
 load_dotenv()
 client = MyClient()
-client.run(os.getenv("DISCORD_TOKEN"))
+client.run(os.getenv("DISCORD_TOKENs"))
