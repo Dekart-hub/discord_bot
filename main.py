@@ -9,6 +9,9 @@ class MyClient(discord.Client):
         print('Logged on as {0}!'.format(self.user))
 
 
+intents = discord.Intents.default()
+intents.message_content = True
 load_dotenv()
-client = MyClient()
-client.run(os.getenv("DISCORD_TOKENs"))
+
+client = MyClient(intents=intents)
+client.run(os.getenv("DISCORD_TOKEN"))
