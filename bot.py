@@ -17,14 +17,22 @@ def run_bot():
         print('Logged on')
         await client.tree.sync()
 
-    @client.tree.command(name="echo")
-    async def echo(interaction: discord.Interaction):
+    @client.tree.command(name="hello", description="Says hello to you ^_^")
+    async def hello(interaction: discord.Interaction):
         await interaction.response.send_message(f"Hello {interaction.user.mention}")
 
     @client.tree.command(name="sync")
-    @commands.is_owner()
     async def sync(interaction: discord.Interaction):
-        await tree.sync()
+        if interaction.user.id == os.getenv("ADMIN_ID"):
+            await client.tree.sync()
+            print("Synced!")
+        else:
+            await interaction.response.send_message(f"ЖОПА")
+
+    @tree.command(name="ping", description="Shows bot's latency in ms.")
+    async def ping(interaction: discord.Interaction):
+        bot_latency = round(client.latency * 1000)
+        await interaction.response.send_message(f"Pong! {bot_latency} ms.")
 
     load_dotenv()
     client.run(os.getenv("DISCORD_TOKEN"))
