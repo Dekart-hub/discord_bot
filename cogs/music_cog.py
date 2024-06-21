@@ -29,7 +29,7 @@ class music_cog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        await self.bot.change_presence(activity=discord.Game("Online"))
+        print("Music_cog ready")
 
         # searching the item on youtube
 
@@ -59,7 +59,7 @@ class music_cog(commands.Cog):
 
         # infinite loop checking
 
-    async def play_music(self, ctx):
+    async def play_music(self, interaction: discord.Interaction):
         if len(self.music_queue) > 0:
             self.is_playing = True
 
@@ -70,7 +70,7 @@ class music_cog(commands.Cog):
 
                 # in case we fail to connect
                 if self.vc == None:
-                    await ctx.send("```Could not connect to the voice channel```")
+                    await interaction.response.send_message("```Could not connect to the voice channel```")
                     return
             else:
                 await self.vc.move_to(self.music_queue[0][1])
@@ -85,80 +85,90 @@ class music_cog(commands.Cog):
         else:
             self.is_playing = False
 
-    @commands.command(name="play", aliases=["p", "playing"], help="Plays a selected song from youtube")
-    async def play(self, ctx, *args):
-        query = " ".join(args)
+    @app_commands.command(name="play", description="Plays a selected song from youtube")
+    @app_commands.describe(querry="Link to or name of a song.")
+    async def play(self, interaction: discord.Interaction, querry: str):
+        query = " ".join(querry)
         try:
-            voice_channel = ctx.author.voice.channel
+            voice_channel = interaction.user.voice.channel
         except:
-            await ctx.send("```You need to connect to a voice channel first!```")
+            await interaction.response.send_message("```You need to connect to a voice channel first!```")
             return
         if self.is_paused:
             self.vc.resume()
         else:
             song = self.search_yt(query)
             if type(song) == type(True):
-                await ctx.send(
+                await interaction.response.send_message(
                     "```Could not download the song. Incorrect format try another keyword. This could be due to playlist or a livestream format.```")
             else:
                 if self.is_playing:
-                    await ctx.send(f"**#{len(self.music_queue) + 2} -'{song['title']}'** added to the queue")
+                    await interaction.response.send_message(f"**#{len(self.music_queue) + 2} -'{song['title']}'** added to the queue")
                 else:
-                    await ctx.send(f"**'{song['title']}'** added to the queue")
+                    await interaction.response.send_message(f"**'{song['title']}'** added to the queue")
                 self.music_queue.append([song, voice_channel])
                 if self.is_playing == False:
-                    await self.play_music(ctx)
+                    await self.play_music(interaction)
 
-    @commands.command(name="pause", help="Pauses the current song being played")
-    async def pause(self, ctx, *args):
+    @app_commands.command(name="pause", description="Pauses the current song being played")
+    async def pause(self, interaction: discord.Interaction):
         if self.is_playing:
             self.is_playing = False
             self.is_paused = True
             self.vc.pause()
+            await interaction.response.send_message("```Paused```")
         elif self.is_paused:
             self.is_paused = False
             self.is_playing = True
             self.vc.resume()
+            await interaction.response.send_message("```Bot was on pause, but we resumed music for you```")
 
-    @commands.command(name="resume", aliases=["r"], help="Resumes playing with the discord bot")
-    async def resume(self, ctx, *args):
+    @app_commands.command(name="resume", description="Resumes playing with the discord bot")
+    async def resume(self, interaction: discord.Interaction):
         if self.is_paused:
             self.is_paused = False
             self.is_playing = True
             self.vc.resume()
+            await interaction.response.send_message("```Resumed```")
+        else:
+            await interaction.response.send_message("```Not on pause```")
 
-    @commands.command(name="skip", aliases=["s"], help="Skips the current song being played")
-    async def skip(self, ctx):
+    @app_commands.command(name="skip", description="Skips the current song being played")
+    async def skip(self, interaction: discord.Interaction):
         if self.vc != None and self.vc:
             self.vc.stop()
             # try to play next in the queue if it exists
-            await self.play_music(ctx)
+            await self.play_music(interaction)
+            await interaction.response.send_message("```Skipped```")
+        else:
+            await interaction.response.send_message("```Not playing```")
 
-    @commands.command(name="queue", aliases=["q"], help="Displays the current songs in queue")
-    async def queue(self, ctx):
+    @app_commands.command(name="queue", description="Displays the current songs in queue")
+    async def queue(self, interaction: discord.Interaction):
         retval = ""
         for i in range(0, len(self.music_queue)):
             retval += f"#{i + 1} -" + self.music_queue[i][0]['title'] + "\n"
 
         if retval != "":
-            await ctx.send(f"```queue:\n{retval}```")
+            await interaction.response.send_message(f"```queue:\n{retval}```")
         else:
-            await ctx.send("```No music in queue```")
+            await interaction.response.send_message("```No music in queue```")
 
-    @commands.command(name="clear", aliases=["c", "bin"], help="Stops the music and clears the queue")
-    async def clear(self, ctx):
+    @app_commands.command(name="clear", description="Stops the music and clears the queue")
+    async def clear(self, interaction: discord.Interaction):
         if self.vc != None and self.is_playing:
             self.vc.stop()
         self.music_queue = []
-        await ctx.send("```Music queue cleared```")
+        await interaction.response.send_message("```Music queue cleared```")
 
-    @commands.command(name="stop", aliases=["disconnect", "l", "d"], help="Kick the bot from VC")
-    async def dc(self, ctx):
+    @app_commands.command(name="stop", description="Kick the bot from VC")
+    async def dc(self, interaction: discord.Interaction):
         self.is_playing = False
         self.is_paused = False
         await self.vc.disconnect()
+        await interaction.response.send_message("```Bye-bye!```")
 
-    @commands.command(name="remove", help="Removes last song added to queue")
-    async def re(self, ctx):
+    @app_commands.command(name="remove", description="Removes last song added to queue")
+    async def re(self, interaction: discord.Interaction):
         self.music_queue.pop()
-        await ctx.send("```last song removed```")
+        await interaction.response.send_message("```last song removed```")
