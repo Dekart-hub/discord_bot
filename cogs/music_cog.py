@@ -29,7 +29,7 @@ class music_cog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        print("Music_cog ready")
+        print("music_cog ready")
 
         # searching the item on youtube
 

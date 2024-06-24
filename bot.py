@@ -20,10 +20,6 @@ def run_bot():
     async def on_ready():
         print('Logged on')
 
-    @bot.tree.command(name="hello", description="Says hello to you ^_^")
-    async def hello(interaction: discord.Interaction):
-        await interaction.response.send_message(f"Hello {interaction.user.mention}")
-
     @bot.command(name="sync")
     async def sync(ctx):
         if ctx.author.id == int(os.getenv("ADMIN_ID")):
@@ -31,11 +27,6 @@ def run_bot():
             print("Synced!")
         else:
             await ctx.send("ZHOPA")
-
-    @bot.tree.command(name="ping", description="Shows bot's latency in ms.")
-    async def ping(interaction: discord.Interaction):
-        bot_latency = round(bot.latency * 1000)
-        await interaction.response.send_message(f"Pong! {bot_latency} ms.")
 
     load_dotenv()
     bot.run(os.getenv("DISCORD_TOKEN"))
