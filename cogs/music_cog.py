@@ -1,7 +1,6 @@
-from ast import alias
 import discord
 from discord.ext import commands
-from discord import app_commands, activity
+from discord import app_commands
 from youtubesearchpython import VideosSearch
 from yt_dlp import YoutubeDL
 import asyncio
@@ -21,8 +20,15 @@ class music_cog(commands.Cog):
 
         # 2d array containing [song, channel]
         self.music_queue = []
-        self.YDL_OPTIONS = {'format': 'bestaudio/best'}
-        self.FFMPEG_OPTIONS = {'options': '-vn'}
+        self.YDL_OPTIONS = {'format': 'bestaudio/best',
+                            'postprocessors': [{
+                                'key': 'FFmpegExtractAudio',
+                                'preferredcodec': 'mp3',
+                                'preferredquality': '192',
+                            }],
+                            'outtmpl': '%(title)s.%(ext)s',
+                            }
+        self.FFMPEG_OPTIONS = {'options': '-vn -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1'}
 
         self.vc = None
         self.ytdl = YoutubeDL(self.YDL_OPTIONS)
@@ -30,8 +36,6 @@ class music_cog(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         print("music_cog ready")
-
-        # searching the item on youtube
 
     def search_yt(self, item):
         if item.startswith("https://"):
@@ -50,7 +54,7 @@ class music_cog(commands.Cog):
             # remove the first element as you are currently playing it
             self.music_queue.pop(0)
             loop = asyncio.get_event_loop()
-            data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(m_url, download=False))
+            data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(m_url, download=True))
             song = data['url']
             self.vc.play(discord.FFmpegPCMAudio(song, executable="ffmpeg.exe", **self.FFMPEG_OPTIONS),
                          after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
@@ -65,11 +69,11 @@ class music_cog(commands.Cog):
 
             m_url = self.music_queue[0][0]['source']
             # try to connect to voice channel if you are not already connected
-            if self.vc == None or not self.vc.is_connected():
+            if self.vc is None or not self.vc.is_connected():
                 self.vc = await self.music_queue[0][1].connect()
 
                 # in case we fail to connect
-                if self.vc == None:
+                if self.vc is None:
                     await interaction.response.send_message("```Could not connect to the voice channel```")
                     return
             else:
@@ -79,6 +83,7 @@ class music_cog(commands.Cog):
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: self.ytdl.extract_info(m_url, download=False))
             song = data['url']
+           # self.ytdl.download(data['url'])
             self.vc.play(discord.FFmpegPCMAudio(song, executable="ffmpeg.exe", **self.FFMPEG_OPTIONS),
                          after=lambda e: asyncio.run_coroutine_threadsafe(self.play_next(), self.bot.loop))
 
@@ -100,14 +105,16 @@ class music_cog(commands.Cog):
             song = self.search_yt(query)
             if type(song) == type(True):
                 await interaction.response.send_message(
-                    "```Could not download the song. Incorrect format try another keyword. This could be due to playlist or a livestream format.```")
+                    "```Could not download the song. Incorrect format try another keyword. This could be due to "
+                    "playlist or a livestream format.```")
             else:
                 if self.is_playing:
-                    await interaction.response.send_message(f"**#{len(self.music_queue) + 2} -'{song['title']}'** added to the queue")
+                    await interaction.response.send_message(f"**#{len(self.music_queue) + 2} -'{song['title']}'** "
+                                                            f"added to the queue")
                 else:
                     await interaction.response.send_message(f"**'{song['title']}'** added to the queue")
                 self.music_queue.append([song, voice_channel])
-                if self.is_playing == False:
+                if not self.is_playing:
                     await self.play_music(interaction)
 
     @app_commands.command(name="pause", description="Pauses the current song being played")
@@ -135,11 +142,11 @@ class music_cog(commands.Cog):
 
     @app_commands.command(name="skip", description="Skips the current song being played")
     async def skip(self, interaction: discord.Interaction):
-        if self.vc != None and self.vc:
+        if self.vc is not None and self.vc:
             self.vc.stop()
+            await interaction.response.send_message("```Skipped```")
             # try to play next in the queue if it exists
             await self.play_music(interaction)
-            await interaction.response.send_message("```Skipped```")
         else:
             await interaction.response.send_message("```Not playing```")
 
@@ -154,10 +161,8 @@ class music_cog(commands.Cog):
         else:
             await interaction.response.send_message("```No music in queue```")
 
-    @app_commands.command(name="clear", description="Stops the music and clears the queue")
+    @app_commands.command(name="clear", description="Clears the queue")
     async def clear(self, interaction: discord.Interaction):
-        if self.vc != None and self.is_playing:
-            self.vc.stop()
         self.music_queue = []
         await interaction.response.send_message("```Music queue cleared```")
 
@@ -168,7 +173,11 @@ class music_cog(commands.Cog):
         await self.vc.disconnect()
         await interaction.response.send_message("```Bye-bye!```")
 
-    @app_commands.command(name="remove", description="Removes last song added to queue")
-    async def re(self, interaction: discord.Interaction):
-        self.music_queue.pop()
-        await interaction.response.send_message("```last song removed```")
+    @app_commands.command(name="remove", description="Removes song added to queue by its number")
+    async def re(self, interaction: discord.Interaction, index: int):
+        if (index - 1) <= len(self.music_queue):
+            await interaction.response.send_message(f"```Removed {self.music_queue[index-1]}```")
+            self.music_queue.pop(index - 1)
+        else:
+            await interaction.response.send_message("```invalid index```")
+
