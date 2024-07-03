@@ -1,16 +1,11 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from youtubesearchpython import VideosSearch
 import yt_dlp as youtube_dl
-from yt_dlp import YoutubeDL
 import asyncio
 import logging
 import math
-from urllib import request
-
 import config
-from config import load_config
 from Utils.Video import Video
 
 
