@@ -202,21 +202,6 @@ class music_cog(commands.Cog):
         state.playlist = []
         await interaction.response.send_message("Cleared")
 
-    # @commands.command(aliases=["jq"])
-    # @commands.guild_only()
-    # @commands.check(audio_playing)
-    # @commands.has_permissions(administrator=True)
-    # async def jumpqueue(self, ctx, song: int, new_index: int):
-    #     """Moves song at an index to `new_index` in queue."""
-    #     state = self.get_state(ctx.guild)  # get state for this guild
-    #     if 1 <= song <= len(state.playlist) and 1 <= new_index:
-    #         song = state.playlist.pop(song - 1)  # take song at index...
-    #         state.playlist.insert(new_index - 1, song)  # and insert it.
-    #
-    #         await ctx.send(self._queue_text(state.playlist))
-    #     else:
-    #         raise commands.CommandError("You must use a valid index.")
-
     @app_commands.command(name="play", description="Plays audio from <url> or by name.")
     @app_commands.describe(url="Link or name of a song.")
     @app_commands.guild_only()
@@ -235,8 +220,12 @@ class music_cog(commands.Cog):
                 await interaction.followup.send(
                     "There was an error downloading your video, sorry.")
                 return
-            state.playlist.append(video)
-            await interaction.followup.send("Added to queue.", embed=video.get_embed())
+            if video.is_playlist:
+                state.playlist.extend(video.playlist)
+                await interaction.followup.send("Added to queue.", embed=video.playlist[0].get_embed())
+            else:
+                state.playlist.append(video)
+                await interaction.followup.send("Added to queue.", embed=video.get_embed())
         else:
             if interaction.user.voice is not None and interaction.user.voice.channel is not None:
                 channel = interaction.user.voice.channel
@@ -247,9 +236,15 @@ class music_cog(commands.Cog):
                         "There was an error downloading your video, sorry.")
                     return
                 client = await channel.connect()
-                self._play_song(client, state, video)
-                await interaction.followup.send("", embed=video.get_embed())
-                logging.info(f"Now playing '{video.title}'")
+                if video.is_playlist:
+                    self._play_song(client, state, video.playlist[0])
+                    state.playlist.extend(video.playlist[1:])
+                    await interaction.followup.send("", embed=video.playlist[0].get_embed())
+                    logging.info(f"Now playing '{video.playlist[0].title}'")
+                else:
+                    self._play_song(client, state, video)
+                    await interaction.followup.send("", embed=video.get_embed())
+                    logging.info(f"Now playing '{video.title}'")
             else:
                 raise commands.CommandError(
                     "You need to be in a voice channel to do that.")
