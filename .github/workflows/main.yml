@@ -23,7 +23,7 @@ jobs:
           source: "./*"
           target: "~/discord-bot/"
 
-      - name: Deploy to VPS
+      - name: Setup Python Environment
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
@@ -33,20 +33,29 @@ jobs:
           port: ${{ secrets.PORT }}
           script: |
             cd ~/discord-bot
-            
-            # Create and activate virtual environment
+            echo "Setting up Python environment..."
             python3 -m venv venv
             source venv/bin/activate
-            
-            # Update pip and install dependencies
+            echo "Upgrading pip..."
             pip install --upgrade pip
+            echo "Installing dependencies..."
             pip install -r requirements.txt
-            
-            # Stop existing process
+            echo "Environment setup complete"
+
+      - name: Create and Start Service
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.SSH_PASS }}
+          key: ${{ secrets.SSHKEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            echo "Stopping existing process..."
             pkill -f main.py || true
             
-            # Create or update systemd service
-            sudo tee /etc/systemd/system/discord-bot.service << EOF
+            echo "Creating systemd service file..."
+            cat << EOF | sudo tee /etc/systemd/system/discord-bot.service
             [Unit]
             Description=Discord Bot Service
             After=network.target
@@ -58,12 +67,26 @@ jobs:
             Environment=PATH=/home/${{ secrets.USERNAME }}/discord-bot/venv/bin
             ExecStart=/home/${{ secrets.USERNAME }}/discord-bot/venv/bin/python3 main.py
             Restart=always
+            RestartSec=5
+            StandardOutput=append:/home/${{ secrets.USERNAME }}/discord-bot/bot.log
+            StandardError=append:/home/${{ secrets.USERNAME }}/discord-bot/bot.error.log
             
             [Install]
             WantedBy=multi-user.target
             EOF
             
-            # Reload systemd and restart service
+            echo "Reloading systemd..."
             sudo systemctl daemon-reload
+            
+            echo "Enabling service..."
             sudo systemctl enable discord-bot
+            
+            echo "Starting service..."
             sudo systemctl restart discord-bot
+            
+            echo "Checking service status..."
+            sudo systemctl status discord-bot --no-pager
+            
+            echo "Checking logs..."
+            tail -n 50 /home/${{ secrets.USERNAME }}/discord-bot/bot.log || true
+            tail -n 50 /home/${{ secrets.USERNAME }}/discord-bot/bot.error.log || true
