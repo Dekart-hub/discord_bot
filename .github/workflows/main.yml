@@ -26,6 +26,7 @@ jobs:
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.SSH_PASS }}
           key: ${{ secrets.SSHKEY }}
           port: ${{ secrets.PORT }}
           source: "/tmp/discord-bot.tar"
@@ -36,6 +37,7 @@ jobs:
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.SSH_PASS }}
           key: ${{ secrets.SSHKEY }}
           port: ${{ secrets.PORT }}
           script: |
