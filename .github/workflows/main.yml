@@ -31,7 +31,6 @@ jobs:
           password: ${{ secrets.SSH_PASS }}
           key: ${{ secrets.SSHKEY }}
           port: ${{ secrets.PORT }}
-          timeout: 1200
           script: |
             # Перейти в директорию проекта
             cd ~/discord-bot
