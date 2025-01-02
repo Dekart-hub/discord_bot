@@ -32,17 +32,38 @@ jobs:
           key: ${{ secrets.SSHKEY }}
           port: ${{ secrets.PORT }}
           script: |
-            # Перейти в директорию проекта
             cd ~/discord-bot
-
-            # Убедиться, что зависимости обновлены
+            
+            # Create and activate virtual environment
             python3 -m venv venv
             source venv/bin/activate
+            
+            # Update pip and install dependencies
             pip install --upgrade pip
             pip install -r requirements.txt
-
-            # Остановить текущий процесс, если он работает
+            
+            # Stop existing process
             pkill -f main.py || true
-
-            # Запустить новый процесс
-            nohup python3 main.py > bot.log 2>&1 &
+            
+            # Create or update systemd service
+            sudo tee /etc/systemd/system/discord-bot.service << EOF
+            [Unit]
+            Description=Discord Bot Service
+            After=network.target
+            
+            [Service]
+            Type=simple
+            User=${{ secrets.USERNAME }}
+            WorkingDirectory=/home/${{ secrets.USERNAME }}/discord-bot
+            Environment=PATH=/home/${{ secrets.USERNAME }}/discord-bot/venv/bin
+            ExecStart=/home/${{ secrets.USERNAME }}/discord-bot/venv/bin/python3 main.py
+            Restart=always
+            
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+            
+            # Reload systemd and restart service
+            sudo systemctl daemon-reload
+            sudo systemctl enable discord-bot
+            sudo systemctl restart discord-bot
