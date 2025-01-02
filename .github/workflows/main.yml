@@ -18,7 +18,6 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.SSH_PASS }}
-          key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.PORT }}
           source: "./*"
           target: "~/discord-bot/"
@@ -29,7 +28,6 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.SSH_PASS }}
-          key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.PORT }}
           script: |
             cd ~/discord-bot
@@ -48,7 +46,6 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           password: ${{ secrets.SSH_PASS }}
-          key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.PORT }}
           script: |
             echo "Stopping existing process..."
