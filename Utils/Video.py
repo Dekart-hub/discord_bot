@@ -8,7 +8,6 @@ YTDL_OPTS = {
     "simulate": True,
     "forceurl": True,
     "extract_flat": "in_playlist",
-    "proxy": 'socks5://127.0.0.1:10801'
 }
 
 
@@ -18,10 +17,14 @@ class Video:
     def __init__(self, url_or_search, requested_by):
         """Plays audio from (or searches for) a URL."""
         with ytdl.YoutubeDL(YTDL_OPTS) as ydl:
-            video, is_playlist = self._get_info(url_or_search, requested_by)
-            self.is_playlist = is_playlist
-            if is_playlist:
-                self.playlist = video
+            video = self._get_info(url_or_search, requested_by)
+            self.is_playlist = video["is_playlist"]
+            self.requested_by = requested_by
+            if self.is_playlist:
+                self.playlist_link = url_or_search
+                self.playlist = []
+                for item in video["entries"]:
+                    self.playlist.append({"url": item["url"], "requested_by": requested_by, "title": item["title"]})
             else:    
                 video_format = video["formats"][5]
                 self.stream_url = video_format["url"]
@@ -29,22 +32,23 @@ class Video:
                 self.title = video["title"]
                 self.uploader = video["uploader"] if "uploader" in video else ""
                 self.thumbnail = video["thumbnail"] if "thumbnail" in video else None
-                self.requested_by = requested_by
+                
             
     def _get_info(self, video_url, requested_by):
         with ytdl.YoutubeDL(YTDL_OPTS) as ydl:
             info = ydl.extract_info(video_url, download=False)
-            video = None
-            is_list = False
+            video = info
+            video["is_playlist"] = False
             if "_type" in info and info["_type"] == "playlist":
-                result = []
-                is_list = True
-                for item in info["entries"]:
-                    result.append(Video(item["url"], requested_by))
-                return result, is_list
-            else:
-                video = info
-            return video, is_list
+                video["is_playlist"] = True
+            return video
+        
+    def get_playlist(self):
+        with ytdl.YoutubeDL(YTDL_OPTS) as ydl:
+            info = ydl.extract_info(self.playlist_link, download=False)            
+            for item in info["entries"]:
+                self.playlist.append(Video(item["url"], self.requested_by))
+            return 
 
     def get_embed(self):
         """Makes an embed out of this Video's information."""
