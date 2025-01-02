@@ -1,16 +1,11 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from youtubesearchpython import VideosSearch
 import yt_dlp as youtube_dl
-from yt_dlp import YoutubeDL
 import asyncio
 import logging
 import math
-from urllib import request
-
 import config
-from config import load_config
 from Utils.Video import Video
 
 
@@ -22,13 +17,13 @@ async def setup(bot):
 FFMPEG_OPTS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
 
-async def audio_playing(ctx):
+async def audio_playing(interaction: discord.Interaction):
     """Checks that audio is currently playing before continuing."""
-    client = ctx.guild.voice_client
+    client = interaction.guild.voice_client
     if client and client.channel and client.source:
         return True
     else:
-        raise commands.CommandError("Not currently playing any audio.")
+        raise app_commands.AppCommandError("Not currently playing any audio.")
 
 
 async def in_voice_channel(interaction: discord.Interaction):
@@ -59,7 +54,6 @@ class music_cog(commands.Cog):
         self.bot = bot
         self.config = config.load_config()  # retrieve module name, find config entry
         self.states = {}
-        self.bot.add_listener(self.on_reaction_add, "on_reaction_add")
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -72,6 +66,39 @@ class music_cog(commands.Cog):
         else:
             self.states[guild.id] = GuildState()
             return self.states[guild.id]
+        
+    async def start_disconnect_timer(self, guild, client):
+        """Запускает таймер отключения"""
+        state = self.get_state(guild)
+        
+        # Отменяем существующий таймер, если он есть
+        if state.disconnect_timer and not state.disconnect_timer.done():
+            state.disconnect_timer.cancel()
+            
+        # Создаем новый таймер
+        state.disconnect_timer = asyncio.create_task(self.disconnect_after_timeout(guild, client))
+
+    async def disconnect_after_timeout(self, guild, client):
+        """Отключается после 5 минут бездействия"""
+        try:
+            await asyncio.sleep(300)  # 5 минут = 300 секунд
+            if client and client.is_connected():
+                await client.disconnect()
+                state = self.get_state(guild)
+                state.playlist = []
+                state.now_playing = None
+                state.disconnect_timer = None
+                logging.info(f"Disconnected from {guild.name} due to inactivity")
+        except asyncio.CancelledError:
+            # Таймер был отменен
+            logging.info(f"Disconnect timer was cancelled for {guild.name}")
+            pass
+        except Exception as e:
+            logging.error(f"Error in disconnect timer for {guild.name}: {e}")
+
+    async def reset_disconnect_timer(self, guild, client):
+        """Сбрасывает таймер отключения"""
+        await self.start_disconnect_timer(guild, client)
 
     @app_commands.command(name="leave", description="Leaves channel.")
     @app_commands.guild_only()
@@ -94,38 +121,59 @@ class music_cog(commands.Cog):
     async def pause(self, interection: discord.Interaction):
         """Pauses any currently playing audio."""
         client = interection.guild.voice_client
-        self._pause_audio(client)
-        await interection.response.send_message("Paused")
-
-    def _pause_audio(self, client):
+        await self.reset_disconnect_timer(interection.guild, client)
         if client.is_paused():
             client.resume()
+            await interection.response.send_message("Resumed")
         else:
             client.pause()
+            await interection.response.send_message("Paused")
 
-    # @commands.command(aliases=["vol", "v"])
-    # @commands.guild_only()
-    # @commands.check(audio_playing)
-    # @commands.check(in_voice_channel)
-    # @commands.check(is_audio_requester)
-    # async def volume(self, ctx, volume: int):
-    #     """Change the volume of currently playing audio (values 0-250)."""
-    #     state = self.get_state(ctx.guild)
-    #
-    #     # make sure volume is nonnegative
-    #     if volume < 0:
-    #         volume = 0
-    #
-    #     max_vol = self.config["max_volume"]
-    #     if max_vol > -1:  # check if max volume is set
-    #         # clamp volume to [0, max_vol]
-    #         if volume > max_vol:
-    #             volume = max_vol
-    #
-    #     client = ctx.guild.voice_client
-    #
-    #     state.volume = float(volume) / 100.0
-    #     client.source.volume = state.volume  # update the AudioSource's volume to match
+    @app_commands.command(name="volume", description="Изменить громкость воспроизведения (0-250)")
+    @app_commands.describe(volume="Значение громкости от 0 до 250")
+    @app_commands.guild_only()
+    @app_commands.check(audio_playing)
+    @app_commands.check(in_voice_channel)
+    async def volume(self, interaction: discord.Interaction, volume: int):
+        """Изменяет громкость воспроизведения (значения 0-250)."""
+        state = self.get_state(interaction.guild)
+        client = interaction.guild.voice_client
+
+        # Проверяем, что громкость неотрицательная
+        if volume < 0:
+            volume = 0
+
+        # Проверяем максимальную громкость из конфига
+        max_vol = self.config["max_volume"]
+        if max_vol > -1:  # проверяем, установлен ли максимум
+            if volume > max_vol:
+                volume = max_vol
+
+        # Преобразуем громкость в диапазон 0-2.0
+        state.volume = float(volume) / 100.0
+
+        # Создаем новый источник аудио с новой громкостью
+        current_source = client.source
+        if current_source:
+            audio = discord.FFmpegOpusAudio(
+                state.now_playing.stream_url,
+                **FFMPEG_OPTS,
+                options=f'{FFMPEG_OPTS["options"]} -filter:a volume={state.volume}'
+            )
+
+            # Останавливаем текущее воспроизведение
+            client.stop()
+
+            # Начинаем воспроизведение с новой громкостью
+            def after_playing(err):
+                if err:
+                    logging.error(f"Error in playback after volume change: {err}")
+
+            client.play(audio, after=after_playing)
+
+            await interaction.response.send_message(f"Громкость изменена на {volume}%")
+        else:
+            await interaction.response.send_message("В данный момент ничего не воспроизводится.")
 
     @app_commands.command(name="skip", description="Skips current song.")
     @app_commands.guild_only()
@@ -138,34 +186,34 @@ class music_cog(commands.Cog):
         client.stop()
         await interaction.response.send_message("Skipped!")
 
-    def _vote_skip(self, channel, member):
-        """Register a vote for `member` to skip the song playing."""
-        logging.info(f"{member.name} votes to skip")
-        state = self.get_state(channel.guild)
-        state.skip_votes.add(member)
-        users_in_channel = len([
-            member for member in channel.members if not member.bot
-        ])  # don't count bots
-        if (float(len(state.skip_votes)) /
-            users_in_channel) >= self.config["vote_skip_ratio"]:
-            # enough members have voted to skip, so skip the song
-            logging.info(f"Enough votes, skipping...")
-            channel.guild.voice_client.stop()
-
-    def _play_song(self, client, state, song):
+    async def _play_song(self, client, state, song):
         state.now_playing = song
-        state.skip_votes = set()  # clear skip votes
-        # source = discord.PCMVolumeTransformer(
-        #     discord.FFmpegPCMAudio(song.stream_url, before_options=FFMPEG_BEFORE_OPTS), volume=state.volume)
         source = discord.FFmpegOpusAudio(song.stream_url, **FFMPEG_OPTS)
+        await self.reset_disconnect_timer(client.guild, client)
 
         def after_playing(err):
-            if len(state.playlist) > 0:
-                next_song = state.playlist.pop(0)
-                self._play_song(client, state, next_song)
-            else:
-                asyncio.run_coroutine_threadsafe(client.disconnect(),
-                                                 self.bot.loop)
+            if err:
+                logging.error(f"Error in playback: {err}")
+        
+            async def play_next():
+                if len(state.playlist) > 0:
+                    next_song = state.playlist.pop(0)
+                    try:
+                        video = Video(next_song["url"], next_song["requested_by"])
+                        await self._play_song(client, state, video)
+                    except youtube_dl.DownloadError as e:
+                        logging.error(f"Error downloading next video: {e}")
+                        if len(state.playlist) > 0:
+                            await play_next()
+                else:
+                    await self.start_disconnect_timer(client.guild, client)
+
+            coro = play_next()
+            fut = asyncio.run_coroutine_threadsafe(coro, self.bot.loop)
+            try:
+                fut.result()
+            except Exception as e:
+                logging.error(f"Error in play_next: {e}")
 
         client.play(source, after=after_playing)
 
@@ -175,8 +223,10 @@ class music_cog(commands.Cog):
     async def nowplaying(self, interaction: discord.Interaction):
         """Displays information about the current song."""
         state = self.get_state(interaction.guild)
-        await interaction.response.send_message("", embed=state.now_playing.get_embed())
-        # await self._add_reaction_controls(message)
+        if state.now_playing:
+            await interaction.response.send_message("", embed=state.now_playing.get_embed())
+        else:
+            await interaction.response.send_message("Not currently playing any audio")
 
     @app_commands.command(name="queue", description="Shows queue.")
     @app_commands.guild_only()
@@ -185,13 +235,13 @@ class music_cog(commands.Cog):
         """Display the current play queue."""
         state = self.get_state(interaction.guild)
         await interaction.response.send_message(self._queue_text(state.playlist))
-
+        
     def _queue_text(self, queue):
         """Returns a block of text describing a given song queue."""
         if len(queue) > 0:
             message = [f"{len(queue)} songs in queue:"]
             message += [
-                f"  {index + 1}. **{song.title}** (requested by **{song.requested_by.name}**)"
+                f"  {index + 1}. **{song['title']}** (requested by **{song['requested_by']}**)"
                 for (index, song) in enumerate(queue)
             ]  # add individual songs
             return "\n".join(message)
@@ -207,21 +257,6 @@ class music_cog(commands.Cog):
         state.playlist = []
         await interaction.response.send_message("Cleared")
 
-    # @commands.command(aliases=["jq"])
-    # @commands.guild_only()
-    # @commands.check(audio_playing)
-    # @commands.has_permissions(administrator=True)
-    # async def jumpqueue(self, ctx, song: int, new_index: int):
-    #     """Moves song at an index to `new_index` in queue."""
-    #     state = self.get_state(ctx.guild)  # get state for this guild
-    #     if 1 <= song <= len(state.playlist) and 1 <= new_index:
-    #         song = state.playlist.pop(song - 1)  # take song at index...
-    #         state.playlist.insert(new_index - 1, song)  # and insert it.
-    #
-    #         await ctx.send(self._queue_text(state.playlist))
-    #     else:
-    #         raise commands.CommandError("You must use a valid index.")
-
     @app_commands.command(name="play", description="Plays audio from <url> or by name.")
     @app_commands.describe(url="Link or name of a song.")
     @app_commands.guild_only()
@@ -233,6 +268,7 @@ class music_cog(commands.Cog):
 
         await interaction.response.send_message(f"Searching for {url}")
         if client and client.channel:
+            await self.reset_disconnect_timer(interaction.guild, client)
             try:
                 video = Video(url, interaction.user)
             except youtube_dl.DownloadError as e:
@@ -240,8 +276,14 @@ class music_cog(commands.Cog):
                 await interaction.followup.send(
                     "There was an error downloading your video, sorry.")
                 return
-            state.playlist.append(video)
-            await interaction.followup.send("Added to queue.", embed=video.get_embed())
+            if video.is_playlist:
+                state.playlist.extend(video.playlist)
+                title = video.playlsit[0]["title"]
+                await interaction.followup.send(f"Added to queue {title} and {len(video.playlist)} more tracks")
+            else:
+                #state.playlist.append(video)
+                state.playlist.append(url)
+                await interaction.followup.send("Added to queue.", embed=video.get_embed())
         else:
             if interaction.user.voice is not None and interaction.user.voice.channel is not None:
                 channel = interaction.user.voice.channel
@@ -252,71 +294,60 @@ class music_cog(commands.Cog):
                         "There was an error downloading your video, sorry.")
                     return
                 client = await channel.connect()
-                self._play_song(client, state, video)
-                await interaction.followup.send("", embed=video.get_embed())
-                logging.info(f"Now playing '{video.title}'")
+                if video.is_playlist:
+                    state.playlist.extend(video.playlist[1:])
+                    try:
+                        video = Video(video.playlist[0]["url"], interaction.user)
+                    except youtube_dl.DownloadError as e:
+                        await interaction.followup.send(
+                            "There was an error downloading your video, sorry.")
+                        return
+                    await self._play_song(client, state, video)
+                    await interaction.followup.send("", embed=video.get_embed())
+                    logging.info(f"Now playing '{video.title}'")
+                else:
+                    await self._play_song(client, state, video)
+                    await interaction.followup.send("", embed=video.get_embed())
+                    logging.info(f"Now playing '{video.title}'")
             else:
                 raise commands.CommandError(
                     "You need to be in a voice channel to do that.")
 
-    async def on_reaction_add(self, reaction, user):
-        """Respods to reactions added to the bot's messages, allowing reactions to control playback."""
-        message = reaction.message
-        if user != self.bot.user and message.author == self.bot.user:
-            await message.remove_reaction(reaction, user)
-            if message.guild and message.guild.voice_client:
-                user_in_channel = user.voice and user.voice.channel and user.voice.channel == message.guild.voice_client.channel
-                permissions = message.channel.permissions_for(user)
-                guild = message.guild
-                state = self.get_state(guild)
-                if permissions.administrator or (
-                        user_in_channel and state.is_requester(user)):
-                    client = message.guild.voice_client
-                    if reaction.emoji == "⏯":
-                        # pause audio
-                        self._pause_audio(client)
-                    elif reaction.emoji == "⏭":
-                        # skip audio
-                        client.stop()
-                    elif reaction.emoji == "⏮":
-                        state.playlist.insert(
-                            0, state.now_playing
-                        )  # insert current song at beginning of playlist
-                        client.stop()  # skip ahead
-                elif reaction.emoji == "⏭" and self.config[
-                    "vote_skip"] and user_in_channel and message.guild.voice_client and message.guild.voice_client.channel:
-                    # ensure that skip was pressed, that vote skipping is
-                    # enabled, the user is in the channel, and that the bot is
-                    # in a voice channel
-                    voice_channel = message.guild.voice_client.channel
-                    self._vote_skip(voice_channel, user)
-                    # announce vote
-                    channel = message.channel
-                    users_in_channel = len([
-                        member for member in voice_channel.members
-                        if not member.bot
-                    ])  # don't count bots
-                    required_votes = math.ceil(
-                        self.config["vote_skip_ratio"] * users_in_channel)
-                    await channel.send(
-                        f"{user.mention} voted to skip ({len(state.skip_votes)}/{required_votes} votes)"
-                    )
+    @app_commands.command(name="goto", description="Перейти к указанной позиции в очереди")
+    @app_commands.describe(position="Номер позиции в очереди (1-N)")
+    @app_commands.guild_only()
+    @app_commands.check(audio_playing)
+    @app_commands.check(in_voice_channel)
+    async def goto(self, interaction: discord.Interaction, position: int):
+        """Переходит к воспроизведению трека с указанной позиции в очереди."""
+        state = self.get_state(interaction.guild)
+        client = interaction.guild.voice_client
 
-    async def _add_reaction_controls(self, message):
-        """Adds a 'control-panel' of reactions to a message that can be used to control the bot."""
-        CONTROLS = ["⏮", "⏯", "⏭"]
-        for control in CONTROLS:
-            await message.add_reaction(control)
+        # Проверяем корректность введенной позиции
+        if position < 1 or position > len(state.playlist):
+            await interaction.response.send_message(
+                f"Некорректная позиция. Введите число от 1 до {len(state.playlist)}")
+            return
+
+        # Получаем треки до указанной позиции
+        removed_tracks = state.playlist[:position-1]
+
+        # Обновляем плейлист, начиная с указанной позиции
+        state.playlist = state.playlist[position-1:]
+
+        # Останавливаем текущее воспроизведение, что автоматически запустит следующий трек
+        client.stop()
 
 
 class GuildState:
     """Helper class managing per-guild state."""
-
+    
     def __init__(self):
         self.volume = 1.0
         self.playlist = []
         self.skip_votes = set()
         self.now_playing = None
+        self.disconnect_timer = None
 
     def is_requester(self, user):
         return self.now_playing.requested_by == user
