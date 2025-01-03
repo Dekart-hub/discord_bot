@@ -49,7 +49,7 @@ jobs:
           port: ${{ secrets.PORT }}
           script: |
             echo "Stopping existing process..."
-            pkill -f main.py || true
+            # pkill -f main.py || true
             
             echo "Creating systemd service file..."
             cat << EOF | sudo tee /etc/systemd/system/discord-bot.service
