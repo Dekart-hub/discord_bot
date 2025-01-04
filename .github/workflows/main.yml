@@ -30,6 +30,7 @@ jobs:
           password: ${{ secrets.SSH_PASS }}
           port: ${{ secrets.PORT }}
           script: |
+            pkill -f main.py || true
             cd ~/discord-bot
             echo "Setting up Python environment..."
             python3 -m venv venv
