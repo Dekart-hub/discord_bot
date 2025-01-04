@@ -1,17 +1,13 @@
 name: Deploy Discord Bot
-
 on:
   push:
     branches: [ main ]
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
       - name: Copy code to VPS
         uses: appleboy/scp-action@master
         with:
@@ -21,7 +17,6 @@ jobs:
           port: ${{ secrets.PORT }}
           source: "./*"
           target: "~/discord-bot/"
-
       - name: Setup Python environment and run bot
         uses: appleboy/ssh-action@master
         with:
@@ -31,13 +26,10 @@ jobs:
           port: ${{ secrets.PORT }}
           script: |
             cd ~/discord-bot
-            # Остановка предыдущего процесса через PID файл
-            if [ -f bot.pid ]; then
-              if ps -p $(cat bot.pid) > /dev/null 2>&1; then
-                kill $(cat bot.pid)
-                sleep 2
-              fi
-              rm bot.pid
+            
+            # Проверяем существование screen сессии и закрываем её
+            if screen -list | grep -q "discord-bot"; then
+              screen -S discord-bot -X quit
             fi
             
             echo "Setting up Python environment..."
@@ -49,5 +41,13 @@ jobs:
             pip install -r requirements.txt
             echo "Environment setup complete"
             
-            # Запуск бота с сохранением PID
-            python3 main.py & echo $! > bot.pid
+            # Запускаем бота в новой screen сессии
+            screen -dmS discord-bot bash -c "cd ~/discord-bot && source venv/bin/activate && python3 main.py"
+            
+            # Проверяем, что сессия создалась успешно
+            if screen -list | grep -q "discord-bot"; then
+              echo "Bot successfully started in screen session"
+            else
+              echo "Failed to start bot in screen session"
+              exit 1
+            fi
