@@ -30,8 +30,16 @@ jobs:
           password: ${{ secrets.SSH_PASS }}
           port: ${{ secrets.PORT }}
           script: |
-            pkill -f main.py || false
             cd ~/discord-bot
+            # Остановка предыдущего процесса через PID файл
+            if [ -f bot.pid ]; then
+              if ps -p $(cat bot.pid) > /dev/null 2>&1; then
+                kill $(cat bot.pid)
+                sleep 2
+              fi
+              rm bot.pid
+            fi
+            
             echo "Setting up Python environment..."
             python3 -m venv venv
             source venv/bin/activate
@@ -40,4 +48,6 @@ jobs:
             echo "Installing dependencies..."
             pip install -r requirements.txt
             echo "Environment setup complete"
-            python3 main.py
+            
+            # Запуск бота с сохранением PID
+            python3 main.py & echo $! > bot.pid
